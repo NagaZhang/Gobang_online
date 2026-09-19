@@ -207,6 +207,14 @@ function bindPlayer(ws, room, player) {
   ws.playerRef = { code: room.code, id: player.id };
 }
 
+// 掉线玩家找回座位：更新标签页标识、清掉判负定时器并绑定新连接
+function rebindSeat(ws, room, player, tabId) {
+  if (tabId) player.tabId = tabId;
+  clearTimeout(player.dropTimer);
+  player.dropTimer = null;
+  bindPlayer(ws, room, player);
+}
+
 function handleCreate(ws, msg) {
   const name = cleanName(msg.name);
   if (!name) return send(ws, { type: 'error', text: '请输入昵称（1-12 个字）' });
@@ -226,16 +234,50 @@ function handleCreate(ws, msg) {
 function handleJoin(ws, msg) {
   const name = cleanName(msg.name);
   if (!name) return send(ws, { type: 'error', text: '请输入昵称（1-12 个字）' });
+  if (ws.playerRef) return;
   const code = String(msg.code || '').trim().toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(code)) return send(ws, { type: 'error', text: '房间码应为 6 位字符' });
   const room = rooms.get(code);
   if (!room) return send(ws, { type: 'error', text: '房间不存在或已过期' });
-  if (room.status !== 'waiting') return send(ws, { type: 'error', text: '对局已经开始或房间已满' });
-  if (!room.players[0] || !room.players[0].online) return send(ws, { type: 'error', text: '房主不在线，请稍后再试' });
-  if (room.players[0].name === name) return send(ws, { type: 'error', text: '昵称与房主重复了，换一个吧' });
-  if (ws.playerRef) return;
+  const tabId = String(msg.tabId || '').slice(0, 64) || null;
 
-  const white = makePlayer(game.WHITE, name, String(msg.tabId || '').slice(0, 64) || null, resolveId(msg.playerId, room.players));
+  // 对局中/已结束：允许掉线玩家用原昵称找回自己的座位
+  if (room.status !== 'waiting') {
+    const seat = room.players.find((p) => p && p.name === name);
+    if (!seat) {
+      const canRejoin = room.players.some((p) => p && !p.online);
+      return send(ws, { type: 'error', text: canRejoin ? '对局进行中，请用掉线前的昵称进入找回座位' : '对局已经开始或房间已满' });
+    }
+    if (seat.online && seat.ws && seat.ws !== ws && tabId && seat.tabId && tabId !== seat.tabId) {
+      return send(ws, { type: 'error', text: '这个房间已在另一个浏览器标签页打开' });
+    }
+    const wasOffline = !seat.online;
+    rebindSeat(ws, room, seat, tabId);
+    send(ws, { type: 'restore', selfColor: seat.color, playerId: seat.id, ...snapshot(room) });
+    if (wasOffline && room.status === 'playing') {
+      systemChat(room, `${seat.name} 已重新上线`);
+      broadcast(room, { type: 'opponent:status', color: seat.color, online: true });
+      resumeTimerIfNeeded(room);
+    }
+    return;
+  }
+
+  // 等待中：房主掉线时可用原昵称找回座位
+  const host = room.players[0];
+  if (host && host.name === name) {
+    if (host.online && host.ws && host.ws !== ws && tabId && host.tabId && tabId !== host.tabId) {
+      return send(ws, { type: 'error', text: '这个房间已在另一个浏览器标签页打开' });
+    }
+    const wasOffline = !host.online;
+    rebindSeat(ws, room, host, tabId);
+    send(ws, { type: 'restore', selfColor: host.color, playerId: host.id, ...snapshot(room) });
+    if (wasOffline) systemChat(room, `${host.name} 回来了，继续等待好友加入…`);
+    return;
+  }
+  if (!host || !host.online) return send(ws, { type: 'error', text: '房主不在线，请稍后再试' });
+  if (host.name === name) return send(ws, { type: 'error', text: '昵称与房主重复了，换一个吧' });
+
+  const white = makePlayer(game.WHITE, name, tabId, resolveId(msg.playerId, room.players));
   room.players[game.WHITE - 1] = white;
   bindPlayer(ws, room, white);
   room.status = 'playing';
@@ -266,10 +308,7 @@ function handleReconnect(ws, msg) {
   }
 
   const wasOffline = !player.online;
-  if (tabId) player.tabId = tabId;
-  clearTimeout(player.dropTimer);
-  player.dropTimer = null;
-  bindPlayer(ws, room, player);
+  rebindSeat(ws, room, player, tabId);
 
   send(ws, { type: 'restore', selfColor: player.color, playerId: player.id, ...snapshot(room) });
 
