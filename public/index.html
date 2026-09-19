@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>联网五子棋</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+
+    <!-- 大厅：建房 / 加入 -->
+    <section id="lobby" class="screen lobby">
+      <div class="lobby-inner">
+        <h1 class="logo">五<span>子</span>棋</h1>
+        <p class="subtitle">和好友在线对弈，边下边聊</p>
+
+        <div class="card">
+          <div class="tabs">
+            <button type="button" class="tab active" data-tab="create">创建房间</button>
+            <button type="button" class="tab" data-tab="join">加入房间</button>
+          </div>
+
+          <form id="paneCreate" class="pane">
+            <label class="field">
+              <span>你的昵称</span>
+              <input id="createName" maxlength="12" autocomplete="off" placeholder="1-12 个字">
+            </label>
+            <button type="submit" class="btn primary block">创建房间</button>
+          </form>
+
+          <form id="paneJoin" class="pane" hidden>
+            <label class="field">
+              <span>你的昵称</span>
+              <input id="joinName" maxlength="12" autocomplete="off" placeholder="1-12 个字">
+            </label>
+            <label class="field">
+              <span>房间码</span>
+              <input id="joinCode" maxlength="6" autocomplete="off" placeholder="好友给你的 6 位房间码">
+            </label>
+            <button type="submit" class="btn primary block">加入对局</button>
+          </form>
+
+          <p id="lobbyMsg" class="form-msg" hidden></p>
+          <p class="tip">无需注册：建房后把 <b>6 位房间码</b> 发给好友即可开局</p>
+        </div>
+
+        <p id="reconnectBar" class="reconnect-bar" hidden>正在恢复之前的对局…</p>
+      </div>
+    </section>
+
+    <!-- 对局房间 -->
+    <section id="room" class="screen room" hidden>
+      <header class="room-head">
+        <div class="room-code-line">
+          房间号 <b id="roomCode">------</b>
+          <button type="button" id="btnCopy" class="btn tiny">复制邀请语</button>
+        </div>
+        <button type="button" id="btnLeave" class="btn ghost tiny">离开房间</button>
+      </header>
+
+      <div class="game-wrap">
+        <div class="board-area">
+          <div class="player-card" id="cardBlack">
+            <span class="stone-dot black"></span>
+            <span class="pname" id="nameBlack">黑方</span>
+            <span class="pbadge" id="badgeBlack"></span>
+            <span class="timer" id="timerBlack">--</span>
+          </div>
+
+          <div class="canvas-box">
+            <canvas id="board"></canvas>
+            <div id="boardMask" class="board-mask" hidden>
+              <div class="mask-card">
+                <p id="maskTitle"></p>
+                <p id="maskSub" class="mask-sub"></p>
+                <button type="button" id="btnMaskBack" class="btn primary" hidden>返回大厅</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="player-card" id="cardWhite">
+            <span class="stone-dot white"></span>
+            <span class="pname" id="nameWhite">白方</span>
+            <span class="pbadge" id="badgeWhite"></span>
+            <span class="timer" id="timerWhite">--</span>
+          </div>
+        </div>
+
+        <aside class="side">
+          <div id="statusBar" class="status-bar">等待对手加入…</div>
+          <div id="signalBar" class="signal-bar" hidden></div>
+
+          <div class="controls">
+            <button type="button" id="btnUndo" class="btn">悔棋</button>
+            <button type="button" id="btnDraw" class="btn">和棋</button>
+            <button type="button" id="btnResign" class="btn danger">认输</button>
+          </div>
+
+          <div class="chat-box">
+            <div id="chatLog" class="chat-log"></div>
+            <form id="chatForm" class="chat-form">
+              <input id="chatText" maxlength="200" autocomplete="off" placeholder="说点什么…（回车发送）">
+              <button type="submit" class="btn primary">发送</button>
+            </form>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

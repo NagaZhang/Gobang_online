@@ -1,0 +1,16 @@
+{
+  "name": "online-gomoku",
+  "version": "1.0.0",
+  "description": "联网五子棋对战（含文字聊天）",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
