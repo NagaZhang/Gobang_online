@@ -1,4 +1,4 @@
 node_modules/
 tmp_deploy/
-test_ws_repro.js
+test_*.js
 .trae/

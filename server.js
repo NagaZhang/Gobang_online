@@ -39,6 +39,13 @@ function randomCode() {
 
 const randomId = () => crypto.randomBytes(12).toString('hex');
 
+// 允许客户端预生成合法 ID（开局消息丢失时可凭此 ID 重连恢复），非法或冲突时回退为服务端生成
+function resolveId(raw, existing) {
+  const id = String(raw || '');
+  if (/^[a-f0-9]{16,40}$/.test(id) && !(existing || []).some((p) => p && p.id === id)) return id;
+  return randomId();
+}
+
 function send(ws, obj) {
   if (!ws || ws.readyState !== ws.OPEN) return;
   try {
@@ -60,9 +67,9 @@ function colorName(color) {
   return color === game.BLACK ? '黑方' : '白方';
 }
 
-function makePlayer(color, name, tabId) {
+function makePlayer(color, name, tabId, id) {
   return {
-    id: randomId(),
+    id: id || randomId(),
     name,
     color,
     tabId: tabId || null,
@@ -207,7 +214,7 @@ function handleCreate(ws, msg) {
 
   const room = makeRoom(randomCode());
   const tabId = String(msg.tabId || '').slice(0, 64) || null;
-  const black = makePlayer(game.BLACK, name, tabId);
+  const black = makePlayer(game.BLACK, name, tabId, resolveId(msg.playerId));
   room.players[game.BLACK - 1] = black;
   rooms.set(room.code, room);
   bindPlayer(ws, room, black);
@@ -228,7 +235,7 @@ function handleJoin(ws, msg) {
   if (room.players[0].name === name) return send(ws, { type: 'error', text: '昵称与房主重复了，换一个吧' });
   if (ws.playerRef) return;
 
-  const white = makePlayer(game.WHITE, name, String(msg.tabId || '').slice(0, 64) || null);
+  const white = makePlayer(game.WHITE, name, String(msg.tabId || '').slice(0, 64) || null, resolveId(msg.playerId, room.players));
   room.players[game.WHITE - 1] = white;
   bindPlayer(ws, room, white);
   room.status = 'playing';

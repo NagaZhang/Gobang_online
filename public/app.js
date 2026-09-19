@@ -24,6 +24,17 @@ function getTabId() {
   }
 }
 
+// 生成与服务端 randomId 同格式的玩家 ID（24 位十六进制），用于开局消息丢失时凭 ID 恢复
+function genId() {
+  try {
+    const b = new Uint8Array(12);
+    crypto.getRandomValues(b);
+    return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  } catch (_) {
+    return Array.from({ length: 12 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+  }
+}
+
 const S = {
   ws: null,
   netOpen: false,
@@ -47,6 +58,7 @@ const S = {
   hover: null,
   cssSize: 0,
   syncTimer: null, // 等待期间定期同步状态的定时器
+  joinWatch: null, // 好友提交加入后、收到开局前的补偿轮询定时器
 };
 
 const $ = (id) => document.getElementById(id);
@@ -106,7 +118,7 @@ function wsConnect() {
     ws.addEventListener('close', () => {
       S.netOpen = false;
       setConnUI();
-      if (S.inRoom) {
+      if (S.inRoom || S.joinWatch) {
         toast('网络连接中断，正在尝试重连…');
         clearTimeout(S.retryTimer);
         S.retryTimer = setTimeout(safeReconnect, 1500);
@@ -118,7 +130,10 @@ function wsConnect() {
 async function safeReconnect() {
   try {
     await wsConnect();
-    S.ws.send(JSON.stringify({ type: 'reconnect', code: S.code, playerId: S.playerId, tabId: S.tabId }));
+    // 只有手里握有房间码+玩家 ID（已建房/已加入/加入请求在途）才需要重连恢复
+    if (S.code && S.playerId) {
+      S.ws.send(JSON.stringify({ type: 'reconnect', code: S.code, playerId: S.playerId, tabId: S.tabId }));
+    }
   } catch (_) {
     S.retryTimer = setTimeout(safeReconnect, 1500);
   }
@@ -159,8 +174,10 @@ function initLobby() {
     storageSet(NAME_KEY, name);
     try {
       await wsConnect();
-      sendMsg({ type: 'create', name, tabId: S.tabId });
+      S.playerId = genId();
+      sendMsg({ type: 'create', name, tabId: S.tabId, playerId: S.playerId });
     } catch (_) {
+      S.playerId = null;
       lobbyError('无法连接服务器，请检查网络后重试');
     }
   });
@@ -174,8 +191,15 @@ function initLobby() {
     storageSet(NAME_KEY, name);
     try {
       await wsConnect();
-      sendMsg({ type: 'join', name, code, tabId: S.tabId });
+      // 先在本地记住 code + 预生成的 playerId：即使开局消息丢失，也能凭它重连/轮询恢复
+      S.code = code;
+      S.playerId = genId();
+      sendMsg({ type: 'join', name, code, tabId: S.tabId, playerId: S.playerId });
+      startJoinWatch();
     } catch (_) {
+      stopJoinWatch();
+      S.code = null;
+      S.playerId = null;
       lobbyError('无法连接服务器，请检查网络后重试');
     }
   });
@@ -218,6 +242,7 @@ function leaveRoom() {
   S.inRoom = false;
   clearTimeout(S.retryTimer);
   if (S.syncTimer) { clearInterval(S.syncTimer); S.syncTimer = null; }
+  stopJoinWatch();
   storageRemove(SESSION_KEY);
   if (S.ws) {
     S.ws.onclose = null; // 阻止自动重连
@@ -271,7 +296,14 @@ function dispatch(msg) {
       break;
     case 'error':
       toast(msg.text);
-      if (msg.fatal) leaveRoom();
+      if (msg.fatal) {
+        leaveRoom();
+      } else if (S.joinWatch) {
+        // 加入失败（房间不存在/昵称重复等）：停止补偿轮询，回到干净的大厅状态
+        stopJoinWatch();
+        S.code = null;
+        S.playerId = null;
+      }
       break;
     default:
       break;
@@ -279,6 +311,7 @@ function dispatch(msg) {
 }
 
 function applySnapshot(msg) {
+  stopJoinWatch();
   storageSet(SESSION_KEY, { code: msg.code, playerId: msg.playerId });
   enterRoom();
 
@@ -317,6 +350,22 @@ function updateSyncTimer() {
   if (S.status === 'waiting') {
     S.syncTimer = setInterval(requestSync, 4000);
   }
+}
+
+// 好友提交加入后、收到开局前：定期凭预生成 ID 拉取状态，
+// 防止好友侧的开局消息丢失导致永远停在大厅（最多补偿约 30 秒）
+function startJoinWatch() {
+  stopJoinWatch();
+  let tries = 0;
+  S.joinWatch = setInterval(() => {
+    tries += 1;
+    if (S.inRoom || tries > 12 || !S.code || !S.playerId) { stopJoinWatch(); return; }
+    sendMsg({ type: 'reconnect', code: S.code, playerId: S.playerId, tabId: S.tabId });
+  }, 2500);
+}
+
+function stopJoinWatch() {
+  if (S.joinWatch) { clearInterval(S.joinWatch); S.joinWatch = null; }
 }
 
 function onRemoteMove(msg) {
