@@ -962,6 +962,12 @@ function initKeyboardAware() {
     document.body.classList.add('keyboard-open');
     clearPendingMove();
     apply();
+    // 打字模式：页面锁定到可视高度，复位可能存在的滚动偏移，
+    // 并让聊天日志直接展示最新消息、清掉未读红点
+    window.scrollTo(0, 0);
+    const log = $('chatLog');
+    requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+    clearUnread();
   });
   input.addEventListener('blur', () => {
     document.body.classList.remove('keyboard-open');

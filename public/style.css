@@ -310,11 +310,24 @@ input { font-family: inherit; }
   body.keyboard-open .controls,
   body.keyboard-open .signal-bar,
   body.keyboard-open .move-confirm { display: none !important; }
-  body.keyboard-open .room { padding: 4px 8px 6px; }
-  body.keyboard-open .game-wrap { gap: 4px; }
-  body.keyboard-open .board-area { gap: 4px; }
-  body.keyboard-open .canvas-box {
-    max-width: min(96vw, calc(var(--vvh, 45vh) - 136px));
+  /* 页面整体锁定到键盘弹起后的可视高度，禁止滚动，
+     确保棋盘不会被滚出屏幕、聊天输入框始终贴在键盘上方 */
+  body.keyboard-open { height: var(--vvh, 100vh); overflow: hidden; }
+  body.keyboard-open .room {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 3px 8px 6px;
   }
-  body.keyboard-open .chat-box { max-height: 130px; }
+  body.keyboard-open .game-wrap { flex: 1; min-height: 0; gap: 3px; }
+  /* 棋盘吃掉除聊天区以外的全部剩余高度：宽=高（aspect-ratio），整盘必然完整可见 */
+  body.keyboard-open .board-area { flex: none; gap: 0; }
+  body.keyboard-open .canvas-box {
+    max-width: min(96vw, calc(var(--vvh, 60vh) - 130px));
+  }
+  /* 聊天区占据剩余高度并固定在底部：日志可滚动展示最新消息，输入框贴住键盘 */
+  body.keyboard-open .side { flex: 1; min-height: 0; gap: 0; }
+  body.keyboard-open .chat-box { max-height: none; height: 100%; }
+  body.keyboard-open .chat-form { padding: 6px 8px; }
 }
