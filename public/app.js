@@ -5,7 +5,7 @@
 const SIZE = 15;
 const BLACK = 1;
 const WHITE = 2;
-const TURN_SECONDS = 30;
+const TURN_SECONDS = 35;
 const SESSION_KEY = 'gomoku.session';
 const NAME_KEY = 'gomoku.name';
 const TAB_KEY = 'gomoku.tab';
@@ -56,6 +56,7 @@ const S = {
   winLine: null,
   remainSec: null,
   hover: null,
+  pendingMove: null, // 已点选待确认的落子位置 {x,y}（需二次点击“确认落子”）
   cssSize: 0,
   syncTimer: null, // 等待期间定期同步状态的定时器
   joinWatch: null, // 好友提交加入后、收到开局前的补偿轮询定时器
@@ -253,7 +254,7 @@ function leaveRoom() {
     code: null, playerId: null, selfColor: 0, status: 'lobby',
     board: null, moves: [], players: [], chat: [], pending: null,
     winner: null, reason: null, winLine: null, remainSec: null, hover: null,
-    unreadChat: 0,
+    pendingMove: null, unreadChat: 0,
   });
   $('room').hidden = true;
   $('lobby').hidden = false;
@@ -327,6 +328,7 @@ function applySnapshot(msg) {
   S.players = (msg.players || []).map((p) => ({ ...p }));
   S.chat = (msg.chat || []).slice();
   S.pending = msg.pending || null;
+  S.pendingMove = null;
   S.winner = msg.winner;
   S.reason = msg.reason;
   S.winLine = msg.winLine;
@@ -376,6 +378,7 @@ function onRemoteMove(msg) {
   S.moves.push({ x: msg.x, y: msg.y, color: msg.color });
   S.turn = opponentOf(msg.color);
   S.pending = null;
+  S.pendingMove = null;
   S.remainSec = TURN_SECONDS;
   renderSignal();
   refreshAll();
@@ -387,6 +390,7 @@ function onRemoteUndo(msg) {
   S.moves.pop();
   S.turn = msg.turn;
   S.pending = null;
+  S.pendingMove = null;
   S.remainSec = TURN_SECONDS;
   renderSignal();
   refreshAll();
@@ -409,6 +413,7 @@ function onGameOver(msg) {
   S.reason = msg.reason;
   S.winLine = msg.winLine;
   S.pending = null;
+  S.pendingMove = null;
   renderSignal();
   refreshAll();
   updateSyncTimer();
@@ -519,6 +524,7 @@ function refreshAll() {
   updateStatusBar();
   updateControls();
   updateMask();
+  updateMoveConfirm();
   drawBoard();
 }
 
@@ -737,9 +743,21 @@ function drawBoard() {
   const last = S.moves.length ? S.moves[S.moves.length - 1] : null;
   const r = cell * 0.44;
 
-  // 悬停预览
-  if (S.hover && S.status === 'playing' && S.turn === S.selfColor && bothOnline() &&
-      S.board[S.hover.y][S.hover.x] === 0) {
+  // 待确认的选点：半透明棋子 + 醒目高亮圈
+  if (S.pendingMove && canPlayNow() && S.board[S.pendingMove.y][S.pendingMove.x] === 0) {
+    const { x, y } = S.pendingMove;
+    drawStone(x, y, S.selfColor, r, true);
+    ctx.save();
+    ctx.strokeStyle = '#e67e22';
+    ctx.lineWidth = Math.max(2, cell * 0.08);
+    ctx.setLineDash([cell * 0.18, cell * 0.14]);
+    ctx.beginPath();
+    ctx.arc(pad + x * cell, pad + y * cell, r + cell * 0.12, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  } else if (S.hover && S.status === 'playing' && S.turn === S.selfColor && bothOnline() &&
+             S.board[S.hover.y][S.hover.x] === 0) {
+    // 悬停预览（尚未点选时）
     drawStone(S.hover.x, S.hover.y, S.selfColor, r, true);
   }
 
@@ -827,8 +845,37 @@ canvas.addEventListener('pointerdown', (e) => {
   if (S.status !== 'playing' || S.turn !== S.selfColor || !bothOnline()) return;
   const c = eventToCoord(e);
   if (!c || !S.board || S.board[c.y][c.x] !== 0) return;
-  sendMsg({ type: 'move', x: c.x, y: c.y });
+  // 第一次点击：选中位置（不直接落子），再点其他空位可改选
+  selectPendingMove(c.x, c.y);
 });
+
+/* ================= 二次确认落子 ================= */
+
+function canPlayNow() {
+  return S.status === 'playing' && S.turn === S.selfColor && bothOnline() && S.netOpen;
+}
+
+function selectPendingMove(x, y) {
+  S.pendingMove = { x, y };
+  drawBoard();
+  updateMoveConfirm();
+}
+
+function clearPendingMove() {
+  if (!S.pendingMove) return;
+  S.pendingMove = null;
+  drawBoard();
+  updateMoveConfirm();
+}
+
+function updateMoveConfirm() {
+  const bar = $('moveConfirmBar');
+  const show = !!(S.pendingMove && canPlayNow());
+  if (show) {
+    $('moveConfirmHint').textContent = `已选第 ${S.pendingMove.y + 1} 行、第 ${S.pendingMove.x + 1} 列，确认落子？`;
+  }
+  bar.hidden = !show;
+}
 
 window.addEventListener('resize', resizeBoard);
 // 标签页从后台切回时画布尺寸 0→实际值，用 ResizeObserver 保证重新绘制
@@ -890,9 +937,45 @@ function bindRoomControls() {
     sendMsg({ type: 'rematch:request' });
     toast('已发送续战请求，等待对方回应…');
   });
+
+  // 二次确认落子
+  $('btnConfirmMove').addEventListener('click', () => {
+    if (!S.pendingMove || !canPlayNow()) return;
+    const { x, y } = S.pendingMove;
+    if (sendMsg({ type: 'move', x, y })) clearPendingMove();
+  });
+  $('btnCancelMove').addEventListener('click', () => clearPendingMove());
+}
+
+/* ================= 移动端软键盘适配 ================= */
+
+// 聊天输入框聚焦（软键盘弹起）时压缩布局：隐藏非必要区块、按可视高度缩小棋盘，
+// 保证打字时整个棋盘和聊天输入框都在屏幕内
+function initKeyboardAware() {
+  const input = $('chatText');
+  const vv = window.visualViewport;
+  const root = document.documentElement;
+  const apply = () => {
+    root.style.setProperty('--vvh', (vv ? vv.height : window.innerHeight) + 'px');
+  };
+  input.addEventListener('focus', () => {
+    document.body.classList.add('keyboard-open');
+    clearPendingMove();
+    apply();
+  });
+  input.addEventListener('blur', () => {
+    document.body.classList.remove('keyboard-open');
+    apply();
+  });
+  if (vv) {
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+  }
+  apply();
 }
 
 /* ================= 启动 ================= */
 
 initLobby();
 bindRoomControls();
+initKeyboardAware();

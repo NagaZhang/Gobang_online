@@ -267,6 +267,16 @@ input { font-family: inherit; }
   margin-top: 16px;
 }
 
+/* ===== 二次确认落子条 ===== */
+.move-confirm {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+  background: #fff6e8; border: 1px solid #f0d2a4;
+  border-radius: 10px; padding: 8px 12px; font-size: 13px;
+}
+.move-confirm .move-hint { color: var(--ink); }
+.move-confirm .move-actions { display: flex; gap: 8px; flex: none; }
+
 /* ===== Toast ===== */
 .toast {
   position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%);
@@ -292,4 +302,19 @@ input { font-family: inherit; }
   .chat-badge .badge-dot { width: 10px; height: 10px; }
   /* 移动端遮罩按钮纵向排列 */
   .mask-actions { flex-direction: column; }
+
+  /* 软键盘弹起时：隐藏非必要区块，棋盘按可视高度缩小，保证整盘+输入框同屏可见 */
+  body.keyboard-open .room-head,
+  body.keyboard-open .player-card,
+  body.keyboard-open .status-bar,
+  body.keyboard-open .controls,
+  body.keyboard-open .signal-bar,
+  body.keyboard-open .move-confirm { display: none !important; }
+  body.keyboard-open .room { padding: 4px 8px 6px; }
+  body.keyboard-open .game-wrap { gap: 4px; }
+  body.keyboard-open .board-area { gap: 4px; }
+  body.keyboard-open .canvas-box {
+    max-width: min(96vw, calc(var(--vvh, 45vh) - 136px));
+  }
+  body.keyboard-open .chat-box { max-height: 130px; }
 }

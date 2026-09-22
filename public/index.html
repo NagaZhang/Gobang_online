@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content">
   <title>联网五子棋</title>
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <main id="app">
@@ -82,6 +82,14 @@
             </div>
           </div>
 
+          <div id="moveConfirmBar" class="move-confirm" hidden>
+            <span id="moveConfirmHint" class="move-hint"></span>
+            <span class="move-actions">
+              <button type="button" id="btnCancelMove" class="btn tiny">重新选点</button>
+              <button type="button" id="btnConfirmMove" class="btn primary tiny">确认落子</button>
+            </span>
+          </div>
+
           <div class="player-card" id="cardWhite">
             <span class="stone-dot white"></span>
             <span class="pname" id="nameWhite">白方</span>
@@ -118,6 +126,6 @@
   </main>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

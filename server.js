@@ -8,7 +8,7 @@ const { WebSocketServer } = require('ws');
 const game = require('./src/game');
 
 const PORT = process.env.PORT || 3000;
-const TURN_SECONDS = Number(process.env.TURN_SECONDS) || 30; // 每回合思考时间（秒），可用环境变量调整，超时判负
+const TURN_SECONDS = Number(process.env.TURN_SECONDS) || 35; // 每回合思考时间（秒），可用环境变量调整，超时判负
 const DROP_GRACE_MS = 10 * 60 * 1000; // 掉线保留对局 10 分钟
 const ROOM_TTL_MS = 10 * 60 * 1000; // 对局结束后房间保留 10 分钟
 const NAME_MAX = 12;
