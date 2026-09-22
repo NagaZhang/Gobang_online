@@ -74,8 +74,10 @@
               <div class="mask-card">
                 <p id="maskTitle"></p>
                 <p id="maskSub" class="mask-sub"></p>
-                <div id="maskRematch" class="mask-rematch" hidden></div>
-                <button type="button" id="btnMaskBack" class="btn primary" hidden>返回大厅</button>
+                <div class="mask-actions">
+                  <button type="button" id="btnMaskBack" class="btn primary" hidden>返回大厅</button>
+                  <button type="button" id="btnRematch" class="btn primary" hidden>再来一局</button>
+                </div>
               </div>
             </div>
           </div>
@@ -98,7 +100,11 @@
             <button type="button" id="btnResign" class="btn danger">认输</button>
           </div>
 
-          <div class="chat-box" id="chatBox">
+          <div class="chat-box">
+            <div id="chatBadge" class="chat-badge" hidden>
+              <span class="badge-dot"></span>
+              <span class="badge-text">有新消息</span>
+            </div>
             <div id="chatLog" class="chat-log"></div>
             <form id="chatForm" class="chat-form">
               <input id="chatText" maxlength="200" autocomplete="off" placeholder="说点什么…（回车发送）">
@@ -112,9 +118,6 @@
   </main>
 
   <div id="toast" class="toast" hidden></div>
-  <button type="button" id="chatBadge" class="chat-badge" hidden>
-    <span class="chat-badge-dot"></span>消息<span id="chatBadgeCount" class="chat-badge-count"></span>
-  </button>
   <script src="app.js?v=3"></script>
 </body>
 </html>

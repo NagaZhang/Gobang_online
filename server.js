@@ -199,6 +199,65 @@ function finishGame(room, winner, reason, extra = {}) {
   room.closeTimer = setTimeout(() => rooms.delete(room.code), ROOM_TTL_MS);
 }
 
+// 续战：重置棋盘、交换先后手（公平轮换），重新开始一局
+function startRematch(room) {
+  stopTurnTimer(room);
+  room.board = game.createBoard();
+  room.moves = [];
+  room.winner = null;
+  room.reason = null;
+  room.winLine = null;
+  room.pending = null;
+  room.frozenRemaining = null;
+  room.status = 'playing';
+  room.turn = game.BLACK;
+
+  // 交换双方颜色（让上局后手变先手），并按颜色重排 players 数组索引
+  if (room.players.length === 2) {
+    const tmp = room.players[0].color;
+    room.players[0].color = room.players[1].color;
+    room.players[1].color = tmp;
+    room.players.sort((a, b) => a.color - b.color);
+  }
+
+  clearTimeout(room.closeTimer);
+  room.closeTimer = null;
+
+  for (const p of room.players) {
+    send(p.ws, { type: 'start', selfColor: p.color, playerId: p.id, ...snapshot(room) });
+  }
+  launchTimer(room, TURN_SECONDS * 1000);
+}
+
+function handleRematch(room, player, action) {
+  // 续战只在对局结束后允许
+  if (room.status !== 'over') return send(player.ws, { type: 'error', text: '对局尚未结束' });
+  if (!room.players.every((p) => p.online)) return send(player.ws, { type: 'error', text: '对手不在线，无法续战' });
+
+  if (action === 'request') {
+    if (room.pending) return send(player.ws, { type: 'error', text: '已经有一个续战请求在等待回应了' });
+    room.pending = { kind: 'rematch', from: player.color };
+    broadcast(room, { type: 'signal', kind: 'rematch', action: 'offer', from: player.color, name: player.name });
+    return;
+  }
+
+  // accept / decline 只能由被请求方发出
+  if (!room.pending || room.pending.kind !== 'rematch' || room.pending.from === player.color) {
+    return send(player.ws, { type: 'error', text: '当前没有待回应的续战请求' });
+  }
+  const requester = room.players.find((p) => p.color === room.pending.from);
+  room.pending = null;
+  broadcast(room, { type: 'signal', kind: 'rematch', action, from: player.color, name: player.name });
+
+  if (action === 'decline') {
+    systemChat(room, `${player.name} 拒绝了续战`);
+    return;
+  }
+
+  systemChat(room, `${player.name} 接受了续战，换先再战！`);
+  startRematch(room);
+}
+
 // ---------- 业务处理 ----------
 
 function bindPlayer(ws, room, player) {
@@ -412,55 +471,6 @@ function handleSignal(room, player, kind, action) {
   launchTimer(room, TURN_SECONDS * 1000);
 }
 
-// 对局结束后来一局：发起 / 接受 / 拒绝（聊天在此期间始终可用）
-function handleRematch(room, player, action) {
-  if (room.status !== 'over') return send(player.ws, { type: 'error', text: '对局尚未结束' });
-  if (!room.players.every((p) => p.online)) return send(player.ws, { type: 'error', text: '对手掉线中，暂时无法续战' });
-
-  if (action === 'offer') {
-    if (room.pending) return send(player.ws, { type: 'error', text: '已经有一个请求在等待回应了' });
-    room.pending = { kind: 'rematch', from: player.color };
-    broadcast(room, { type: 'signal', kind: 'rematch', action: 'offer', from: player.color, name: player.name });
-    systemChat(room, `${player.name} 请求再来一局，等待对方回应…`);
-    return;
-  }
-
-  // accept / decline 只能由被请求方发出
-  if (!room.pending || room.pending.kind !== 'rematch' || room.pending.from === player.color) {
-    return send(player.ws, { type: 'error', text: '当前没有待回应的续战请求' });
-  }
-  room.pending = null;
-  broadcast(room, { type: 'signal', kind: 'rematch', action, from: player.color, name: player.name });
-
-  if (action === 'decline') {
-    systemChat(room, `${player.name} 拒绝了续战，本局结束`);
-    return;
-  }
-  startNewGame(room);
-}
-
-// 双方同意续战：同一房间内重置棋局、黑白不变、重新计时，聊天记录保留
-function startNewGame(room) {
-  room.board = game.createBoard();
-  room.moves = [];
-  room.status = 'playing';
-  room.turn = game.BLACK;
-  room.winner = null;
-  room.reason = null;
-  room.winLine = null;
-  room.pending = null;
-  room.frozenRemaining = null;
-  clearTimeout(room.closeTimer);
-  room.closeTimer = null;
-  stopTurnTimer(room);
-
-  systemChat(room, '双方开始续战，黑方先行，祝好运！');
-  launchTimer(room, TURN_SECONDS * 1000);
-  for (const p of room.players) {
-    send(p.ws, { type: 'restart', selfColor: p.color, playerId: p.id, ...snapshot(room) });
-  }
-}
-
 // ---------- WebSocket 连接 ----------
 
 wss.on('connection', (ws) => {
@@ -508,8 +518,8 @@ wss.on('connection', (ws) => {
         return handleSignal(room, player, 'undo', 'accept');
       case 'undo:decline':
         return handleSignal(room, player, 'undo', 'decline');
-      case 'rematch:offer':
-        return handleRematch(room, player, 'offer');
+      case 'rematch:request':
+        return handleRematch(room, player, 'request');
       case 'rematch:accept':
         return handleRematch(room, player, 'accept');
       case 'rematch:decline':
@@ -559,11 +569,6 @@ function onDisconnect(ws) {
     room.closeTimer = setTimeout(() => {
       if (rooms.get(room.code) === room && !room.players[0].online) rooms.delete(room.code);
     }, DROP_GRACE_MS);
-  } else if (room.status === 'over' && room.pending && room.pending.kind === 'rematch') {
-    // 续战请求等待中一方掉线：取消请求，回来后可重新发起
-    room.pending = null;
-    systemChat(room, `${player.name} 掉线了，续战请求已取消`);
-    broadcast(room, { type: 'signal', kind: 'rematch', action: 'cancel' });
   }
 }
 

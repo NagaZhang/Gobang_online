@@ -59,8 +59,7 @@ const S = {
   cssSize: 0,
   syncTimer: null, // 等待期间定期同步状态的定时器
   joinWatch: null, // 好友提交加入后、收到开局前的补偿轮询定时器
-  unread: 0, // 聊天区不在视野内时的未读消息数（移动端红点）
-  chatVisible: true, // 聊天区当前是否在视口中
+  unreadChat: 0, // 未读聊天消息数（聊天区不在视口内时累加）
 };
 
 const $ = (id) => document.getElementById(id);
@@ -254,14 +253,13 @@ function leaveRoom() {
     code: null, playerId: null, selfColor: 0, status: 'lobby',
     board: null, moves: [], players: [], chat: [], pending: null,
     winner: null, reason: null, winLine: null, remainSec: null, hover: null,
-    unread: 0, chatVisible: true,
+    unreadChat: 0,
   });
   $('room').hidden = true;
   $('lobby').hidden = false;
   $('lobbyMsg').hidden = true;
   $('reconnectBar').hidden = true;
   $('chatLog').innerHTML = '';
-  updateChatBadge();
 }
 
 /* ================= 服务端消息分发 ================= */
@@ -271,7 +269,6 @@ function dispatch(msg) {
     case 'waiting':
     case 'start':
     case 'restore':
-    case 'restart':
       applySnapshot(msg);
       break;
     case 'move':
@@ -341,8 +338,6 @@ function applySnapshot(msg) {
   renderSignal();
   refreshAll();
   updateSyncTimer();
-  S.unread = 0;
-  updateChatBadge();
 }
 
 // 向服务器拉取最新房间状态（用于开局消息丢失等异常的补偿）
@@ -541,74 +536,27 @@ function updateMask() {
   const title = $('maskTitle');
   const sub = $('maskSub');
   const back = $('btnMaskBack');
+  const rematch = $('btnRematch');
 
   let show = null;
   if (!S.netOpen) {
-    show = { title: '网络中断', sub: '正在尝试重新连接…', back: false };
+    show = { title: '网络中断', sub: '正在尝试重新连接…', back: false, rematch: false };
   } else if (S.status === 'waiting') {
-    show = { title: '等待好友加入', sub: `把房间码 ${S.code} 发给好友，好友在首页输入房间码即可进入`, back: false };
+    show = { title: '等待好友加入', sub: `把房间码 ${S.code} 发给好友，好友在首页输入房间码即可进入`, back: false, rematch: false };
   } else if (S.status === 'playing' && !bothOnline()) {
-    show = { title: '对手掉线了', sub: '棋局已暂停，对手 10 分钟内回来可继续', back: false };
+    show = { title: '对手掉线了', sub: '棋局已暂停，对手 10 分钟内回来可继续', back: false, rematch: false };
   } else if (S.status === 'over') {
     const r = resultText();
-    show = { title: r.title, sub: r.sub, back: true };
+    const canRematch = S.players.length === 2 && S.players.every((p) => p.online) && !S.pending;
+    show = { title: r.title, sub: r.sub, back: true, rematch: canRematch };
   }
-
-  renderRematch(!!show && S.status === 'over');
 
   if (!show) { mask.hidden = true; return; }
   title.textContent = show.title;
   sub.textContent = show.sub || '';
   back.hidden = !show.back;
+  rematch.hidden = !show.rematch;
   mask.hidden = false;
-}
-
-// 结束遮罩内的续战区：无请求→发起；我发起的→等待；对方发起→接受/拒绝
-function renderRematch(visible) {
-  const box = $('maskRematch');
-  if (!visible) { box.hidden = true; box.innerHTML = ''; return; }
-  box.innerHTML = '';
-  const pending = S.pending && S.pending.kind === 'rematch' ? S.pending : null;
-
-  if (!pending) {
-    if (!bothOnline() || !S.netOpen) {
-      const note = document.createElement('div');
-      note.className = 'rm-note';
-      note.textContent = '对手掉线中，回来后可以再来一局（也可以先在下方聊天）';
-      box.append(note);
-    } else {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn primary';
-      btn.textContent = '再来一局';
-      btn.addEventListener('click', () => sendMsg({ type: 'rematch:offer' }));
-      box.append(btn);
-    }
-  } else if (pending.from === S.selfColor) {
-    const wait = document.createElement('div');
-    wait.className = 'rm-wait';
-    wait.textContent = '已邀请好友续战，等待回应…（你仍可在下方聊天）';
-    box.append(wait);
-  } else {
-    const from = S.players.find((p) => p.color === pending.from);
-    const ask = document.createElement('div');
-    ask.textContent = `${from ? from.name : '对手'} 想再来一局`;
-    const actions = document.createElement('div');
-    actions.className = 'signal-actions';
-    const ok = document.createElement('button');
-    ok.type = 'button';
-    ok.className = 'btn primary tiny';
-    ok.textContent = '接受续战';
-    ok.addEventListener('click', () => sendMsg({ type: 'rematch:accept' }));
-    const no = document.createElement('button');
-    no.type = 'button';
-    no.className = 'btn tiny';
-    no.textContent = '拒绝';
-    no.addEventListener('click', () => sendMsg({ type: 'rematch:decline' }));
-    actions.append(ok, no);
-    box.append(ask, actions);
-  }
-  box.hidden = false;
 }
 
 /* ================= 和棋 / 悔棋请求条 ================= */
@@ -616,9 +564,14 @@ function renderRematch(visible) {
 function renderSignal() {
   const bar = $('signalBar');
   bar.innerHTML = '';
-  if (!S.pending || S.status !== 'playing') { bar.hidden = true; return; }
+  if (!S.pending) { bar.hidden = true; return; }
 
-  const label = S.pending.kind === 'draw' ? '和棋' : '悔棋';
+  const labelMap = { draw: '和棋', undo: '悔棋', rematch: '续战' };
+  const label = labelMap[S.pending.kind] || '请求';
+  // 续战请求在对局结束后才出现，其他请求只在 playing 中显示
+  if (S.pending.kind !== 'rematch' && S.status !== 'playing') { bar.hidden = true; return; }
+  if (S.pending.kind === 'rematch' && S.status !== 'over') { bar.hidden = true; return; }
+
   if (S.pending.from === S.selfColor) {
     bar.textContent = `已发起${label}请求，等待对方回应…`;
   } else {
@@ -631,11 +584,11 @@ function renderSignal() {
     const ok = document.createElement('button');
     ok.className = 'btn primary tiny';
     ok.textContent = '接受';
-    ok.addEventListener('click', () => sendMsg({ type: S.pending.kind === 'draw' ? 'draw:accept' : 'undo:accept' }));
+    ok.addEventListener('click', () => sendMsg({ type: `${S.pending.kind}:accept` }));
     const no = document.createElement('button');
     no.className = 'btn tiny';
     no.textContent = '拒绝';
-    no.addEventListener('click', () => sendMsg({ type: S.pending.kind === 'draw' ? 'draw:decline' : 'undo:decline' }));
+    no.addEventListener('click', () => sendMsg({ type: `${S.pending.kind}:decline` }));
     actions.append(ok, no);
     fragment.append(line, actions);
     bar.append(fragment);
@@ -651,7 +604,6 @@ function onSignal(msg) {
   }
   renderSignal();
   updateControls();
-  updateMask(); // 续战请求条渲染在结束遮罩内
 }
 
 /* ================= 聊天 ================= */
@@ -686,58 +638,43 @@ function rebuildChat() {
   log.innerHTML = '';
   S.chat.forEach((entry) => log.append(buildChatNode(entry)));
   log.scrollTop = log.scrollHeight;
-}
-
-// 用户是否停留在聊天记录底部附近（只有在底部时新消息才自动滚下去，避免打断回看历史）
-function chatNearBottom() {
-  const log = $('chatLog');
-  return log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+  clearUnread();
 }
 
 function appendChat(entry) {
   const log = $('chatLog');
-  const stick = entry.from === S.selfColor || chatNearBottom();
   log.append(buildChatNode(entry));
-  if (stick) log.scrollTop = log.scrollHeight;
-  // 聊天区不在视野（移动端需要下滑才能看到）时累计未读并亮红点
-  if (entry.from !== S.selfColor && !S.chatVisible) {
-    S.unread += 1;
+  // 如果聊天区在视口内且已滚到底部，自动跟随；否则累加未读
+  if (isChatVisible() && isScrolledToBottom(log)) {
+    log.scrollTop = log.scrollHeight;
+  } else {
+    S.unreadChat += 1;
     updateChatBadge();
   }
 }
 
-/* ----- 移动端未读消息红点 ----- */
+function isScrolledToBottom(el) {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+}
 
-function markChatRead() {
-  if (S.unread) { S.unread = 0; updateChatBadge(); }
+function isChatVisible() {
+  const box = $('chatLog').getBoundingClientRect();
+  return box.top < window.innerHeight && box.bottom > 0;
+}
+
+function clearUnread() {
+  S.unreadChat = 0;
+  updateChatBadge();
 }
 
 function updateChatBadge() {
   const badge = $('chatBadge');
-  if (!badge) return;
-  badge.hidden = S.unread === 0;
-  const countEl = $('chatBadgeCount');
-  countEl.textContent = S.unread > 99 ? '99+' : (S.unread > 1 ? String(S.unread) : '');
-}
-
-// 监听聊天区是否进入视口：进入即清除红点；离开后再来消息开始计数
-function initChatVisibility() {
-  const box = $('chatBox');
-  if (!('IntersectionObserver' in window)) { S.chatVisible = true; return; }
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      S.chatVisible = e.isIntersecting;
-      if (e.isIntersecting) markChatRead();
-    }
-  }, { threshold: 0.15 });
-  io.observe(box);
-
-  // 点击红点：平滑滚动到聊天区并聚焦输入框，引导下滑查看
-  $('chatBadge').addEventListener('click', () => {
-    box.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    markChatRead();
-    setTimeout(() => { try { $('chatText').focus({ preventScroll: true }); } catch (_) { /* ignore */ } }, 450);
-  });
+  if (S.unreadChat > 0) {
+    badge.hidden = false;
+    $('chatBadge').querySelector('.badge-text').textContent = `${S.unreadChat} 条新消息`;
+  } else {
+    badge.hidden = true;
+  }
 }
 
 /* ================= Canvas 棋盘 ================= */
@@ -934,10 +871,24 @@ function bindRoomControls() {
     const input = $('chatText');
     const text = input.value.trim();
     if (!text) return;
-    if (sendMsg({ type: 'chat', text })) {
-      input.value = '';
-      markChatRead(); // 自己正在聊天，红点应清除
-    }
+    if (sendMsg({ type: 'chat', text })) input.value = '';
+  });
+
+  // 聊天区滚动到底部时清除未读红点
+  $('chatLog').addEventListener('scroll', () => {
+    if (isScrolledToBottom($('chatLog'))) clearUnread();
+  });
+  // 点击红点提示滚动到聊天区
+  $('chatBadge').addEventListener('click', () => {
+    $('chatLog').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('chatLog').scrollTop = $('chatLog').scrollHeight;
+    clearUnread();
+  });
+
+  // 续战按钮
+  $('btnRematch').addEventListener('click', () => {
+    sendMsg({ type: 'rematch:request' });
+    toast('已发送续战请求，等待对方回应…');
   });
 }
 
@@ -945,4 +896,3 @@ function bindRoomControls() {
 
 initLobby();
 bindRoomControls();
-initChatVisibility();
