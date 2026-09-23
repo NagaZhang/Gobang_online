@@ -947,6 +947,12 @@ function bindRoomControls() {
     if (sendMsg({ type: 'move', x, y })) clearPendingMove();
   });
   $('btnCancelMove').addEventListener('click', () => clearPendingMove());
+  // 移动端打字时落子：阻止按钮在 mousedown 瞬间夺走聊天框焦点（否则软键盘收起，落子后还要重点输入框）。
+  // 只取消 mousedown：它阻止焦点转移但不影响 click 派发；
+  // 不能用 pointerdown.preventDefault——触屏上会连带抑制 click 导致落子失效。
+  for (const id of ['btnConfirmMove', 'btnCancelMove']) {
+    $(id).addEventListener('mousedown', (e) => e.preventDefault());
+  }
 }
 
 /* ================= 落子音效（Web Audio 合成，无需音频文件） ================= */

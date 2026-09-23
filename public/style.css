@@ -326,7 +326,7 @@ input { font-family: inherit; }
   .controls { gap: 6px; }
   .controls .btn { padding: 6px; font-size: 13px; border-radius: 8px; }
 
-  .chat-box { height: 176px; max-height: 176px; border-radius: 10px; }
+  .chat-box { height: 200px; max-height: 200px; border-radius: 10px; }
   .chat-log { flex: 1 1 auto; min-height: 0; }
   /* 移动端气泡加宽，单行显示更多字（宽度受屏宽约束，min-width:0 防撑破） */
   .chat-msg { max-width: 92%; }
@@ -343,14 +343,23 @@ input { font-family: inherit; }
   /* 移动端遮罩按钮纵向排列 */
   .mask-actions { flex-direction: column; }
 
-  /* 软键盘弹起：隐藏非必要区块给棋盘腾空间；聊天盒仍为固定高度，日志只在盒内滚动（不会越聊越长） */
+  /* 软键盘弹起：隐藏非必要区块给棋盘腾空间；确认落子条保留（打字时也能落子），
+     聊天盒仍为固定高度，日志只在盒内滚动（不会越聊越长） */
   body.keyboard-open .room-head,
   body.keyboard-open .player-card,
   body.keyboard-open .status-bar,
   body.keyboard-open .controls,
-  body.keyboard-open .signal-bar,
-  body.keyboard-open .move-confirm { display: none !important; }
+  body.keyboard-open .signal-bar { display: none !important; }
   body.keyboard-open .game-wrap { gap: 3px; }
   body.keyboard-open .board-area { gap: 0; }
-  body.keyboard-open .chat-box { height: 150px; max-height: 150px; }
+  /* 打字态确认条紧凑单行，紧贴棋盘下方 */
+  body.keyboard-open .move-confirm {
+    flex: none;
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 8px;
+    gap: 6px;
+  }
+  body.keyboard-open .move-confirm .btn { padding: 4px 9px; font-size: 12px; }
+  body.keyboard-open .chat-box { height: 140px; max-height: 140px; }
 }
