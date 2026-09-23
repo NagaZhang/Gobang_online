@@ -326,8 +326,10 @@ input { font-family: inherit; }
   .controls { gap: 6px; }
   .controls .btn { padding: 6px; font-size: 13px; border-radius: 8px; }
 
-  .chat-box { height: 132px; max-height: 132px; border-radius: 10px; }
+  .chat-box { height: 176px; max-height: 176px; border-radius: 10px; }
   .chat-log { flex: 1 1 auto; min-height: 0; }
+  /* 移动端气泡加宽，单行显示更多字（宽度受屏宽约束，min-width:0 防撑破） */
+  .chat-msg { max-width: 92%; }
   .chat-form { padding: 6px 8px; }
   .chat-form input { padding: 7px 10px; font-size: 13px; }
   .chat-form .btn { padding: 7px 12px; font-size: 13px; }
@@ -350,5 +352,5 @@ input { font-family: inherit; }
   body.keyboard-open .move-confirm { display: none !important; }
   body.keyboard-open .game-wrap { gap: 3px; }
   body.keyboard-open .board-area { gap: 0; }
-  body.keyboard-open .chat-box { height: 118px; max-height: 118px; }
+  body.keyboard-open .chat-box { height: 150px; max-height: 150px; }
 }
