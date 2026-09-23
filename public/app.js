@@ -382,6 +382,8 @@ function onRemoteMove(msg) {
   S.remainSec = TURN_SECONDS;
   renderSignal();
   refreshAll();
+  // 服务端确认的真实落子才播放（双方都能听到对方落子声）；快照恢复/悔棋不响
+  playStoneSound();
 }
 
 function onRemoteUndo(msg) {
@@ -947,23 +949,78 @@ function bindRoomControls() {
   $('btnCancelMove').addEventListener('click', () => clearPendingMove());
 }
 
-/* ================= 移动端软键盘适配 ================= */
+/* ================= 落子音效（Web Audio 合成，无需音频文件） ================= */
 
-// 聊天输入框聚焦（软键盘弹起）时压缩布局：隐藏非必要区块、按可视高度缩小棋盘，
-// 保证打字时整个棋盘和聊天输入框都在屏幕内
-function initKeyboardAware() {
+let audioCtx = null;
+
+function ensureAudio() {
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      audioCtx = new AC();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  } catch (_) {
+    return null;
+  }
+}
+
+// 棋子落在木盘上的短促“嗒”声：主频快速下滑 + 高频瞬态
+function playStoneSound() {
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  try {
+    const t = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(720, t);
+    osc.frequency.exponentialRampToValueAtTime(240, t + 0.08);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.35, t + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.14);
+
+    const tick = ctx.createOscillator();
+    const tickGain = ctx.createGain();
+    tick.type = 'triangle';
+    tick.frequency.setValueAtTime(1500, t);
+    tick.frequency.exponentialRampToValueAtTime(700, t + 0.03);
+    tickGain.gain.setValueAtTime(0.1, t);
+    tickGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    tick.connect(tickGain).connect(ctx.destination);
+    tick.start(t);
+    tick.stop(t + 0.05);
+  } catch (_) { /* 忽略音频异常 */ }
+}
+
+// 浏览器自动播放策略：首次触摸/点击时解锁音频（不发声）
+function unlockAudioOnGesture() {
+  const unlock = () => ensureAudio();
+  window.addEventListener('pointerdown', unlock, { once: true });
+}
+
+/* ================= 移动端视口 / 软键盘适配 ================= */
+
+// 始终用 visualViewport 的真实可视高度维护 --app-h（含 URL 栏收缩、软键盘弹起），
+// 移动端房间据此锁定为一屏：默认即可见棋盘全貌与折叠聊天区，无需手动下滑
+function initViewportAware() {
   const input = $('chatText');
   const vv = window.visualViewport;
   const root = document.documentElement;
   const apply = () => {
-    root.style.setProperty('--vvh', (vv ? vv.height : window.innerHeight) + 'px');
+    root.style.setProperty('--app-h', (vv ? vv.height : window.innerHeight) + 'px');
   };
   input.addEventListener('focus', () => {
     document.body.classList.add('keyboard-open');
     clearPendingMove();
     apply();
-    // 打字模式：页面锁定到可视高度，复位可能存在的滚动偏移，
-    // 并让聊天日志直接展示最新消息、清掉未读红点
+    // 打字模式：复位页面滚动，聊天日志直接展示最新消息、清掉未读红点
     window.scrollTo(0, 0);
     const log = $('chatLog');
     requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
@@ -977,6 +1034,7 @@ function initKeyboardAware() {
     vv.addEventListener('resize', apply);
     vv.addEventListener('scroll', apply);
   }
+  window.addEventListener('resize', apply);
   apply();
 }
 
@@ -984,4 +1042,5 @@ function initKeyboardAware() {
 
 initLobby();
 bindRoomControls();
-initKeyboardAware();
+initViewportAware();
+unlockAudioOnGesture();
