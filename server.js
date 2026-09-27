@@ -336,18 +336,24 @@ function handleJoin(ws, msg) {
   if (!host || !host.online) return send(ws, { type: 'error', text: '房主不在线，请稍后再试' });
   if (host.name === name) return send(ws, { type: 'error', text: '昵称与房主重复了，换一个吧' });
 
-  const white = makePlayer(game.WHITE, name, tabId, resolveId(msg.playerId, room.players));
-  room.players[game.WHITE - 1] = white;
-  bindPlayer(ws, room, white);
+  // 首局随机先后手：好友加入时 50% 执黑/执白（续战仍固定交换先后手，逻辑不变）
+  const hostP = room.players[0];
+  const guestColor = crypto.randomInt(2) === 0 ? game.WHITE : game.BLACK;
+  hostP.color = guestColor === game.BLACK ? game.WHITE : game.BLACK;
+  const guest = makePlayer(guestColor, name, tabId, resolveId(msg.playerId, room.players));
+  room.players[guestColor - 1] = guest;
+  room.players[hostP.color - 1] = hostP;
+  bindPlayer(ws, room, guest);
   room.status = 'playing';
   room.turn = game.BLACK;
-  clearTimeout(room.players[0].dropTimer);
-  room.players[0].dropTimer = null;
+  clearTimeout(hostP.dropTimer);
+  hostP.dropTimer = null;
 
-  systemChat(room, `${name}（白方）加入对局，黑方先行，祝好运！`);
+  systemChat(room, `${name}（${colorName(guestColor)}）加入对局，黑方先行，祝好运！`);
 
-  send(room.players[0].ws, { type: 'start', selfColor: game.BLACK, playerId: room.players[0].id, ...snapshot(room) });
-  send(white.ws, { type: 'start', selfColor: game.WHITE, playerId: white.id, ...snapshot(room) });
+  for (const p of room.players) {
+    send(p.ws, { type: 'start', selfColor: p.color, playerId: p.id, ...snapshot(room) });
+  }
   launchTimer(room, TURN_SECONDS * 1000);
 }
 
@@ -428,7 +434,8 @@ function handleChat(room, player, msg) {
   const text = String(msg.text == null ? '' : msg.text).trim().slice(0, CHAT_MAX);
   if (!text) return;
   player.chatTimes.push(now);
-  addChat(room, { type: 'chat', from: player.color, name: player.name, text, t: now });
+  // fromId 是跨换边稳定的发送者标识：续战交换颜色后，历史聊天归属仍正确
+  addChat(room, { type: 'chat', fromId: player.id, from: player.color, name: player.name, text, t: now });
 }
 
 function handleSignal(room, player, kind, action) {

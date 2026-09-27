@@ -625,7 +625,8 @@ function buildChatNode(entry) {
     s.textContent = entry.text;
     wrap.append(s);
   } else {
-    const mine = entry.from === S.selfColor;
+    // 优先按稳定玩家 ID 判定（续战换边后历史消息归属不变）；旧记录无 fromId 时回退颜色判定
+    const mine = entry.fromId != null ? entry.fromId === S.playerId : entry.from === S.selfColor;
     wrap.className = 'chat-msg' + (mine ? ' mine' : '');
     if (!mine) {
       const who = document.createElement('div');
